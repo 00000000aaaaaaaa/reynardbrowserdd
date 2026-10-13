@@ -285,6 +285,7 @@ final class BrowserViewController: UIViewController, GeckoScreenOrientationDeleg
     // MARK: - Browser Layout
     
     private func configureBrowserInterface() {
+        contentView.keyCommandDelegate = self
         contentView.onAppearanceChanged = { [weak self] in
             self?.setNeedsStatusBarAppearanceUpdate()
         }
