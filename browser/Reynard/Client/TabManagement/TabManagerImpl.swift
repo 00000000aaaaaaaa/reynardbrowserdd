@@ -1283,7 +1283,6 @@ extension TabManagerImplementation: SystemMediaSessionPlaybackObserver {
                 notifyUpdate(at: location.index, mode: location.mode, reason: .audio)
             }
         }
-        delegate?.tabManager(self, didChangeMediaPlayback: playbackState == .playing, for: session)
     }
 }
 
@@ -1357,14 +1356,9 @@ extension TabManagerImplementation: ContentDelegate {
             return
         }
         
-        let mediaIsPlaying = systemMediaSession.selectedSnapshot.map {
-            $0.session === session && $0.playbackState == .playing
-        } ?? false
-        
         delegate?.tabManager(
             self,
             didChangeFullscreen: fullScreen,
-            mediaIsPlaying: mediaIsPlaying,
             for: session
         )
     }
