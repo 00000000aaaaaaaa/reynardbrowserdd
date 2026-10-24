@@ -971,7 +971,7 @@ final class TabManagerImplementation: NSObject, TabManager {
         let shouldNavigateDirectly = lenientURLExpression.firstMatch(in: navigationInput, range: navigationInputRange) != nil
         
         if shouldNavigateDirectly {
-            loadURL(navigationInput, in: tab)
+            loadURL(URLUtils.fixTLDTypo(in: navigationInput), in: tab)
             return
         }
         
