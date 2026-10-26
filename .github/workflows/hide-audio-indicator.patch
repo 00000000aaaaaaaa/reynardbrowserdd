@@ -1,0 +1,166 @@
+diff --git a/browser/Reynard/Client/Extensions/Notifications.swift b/browser/Reynard/Client/Extensions/Notifications.swift
+index 8da08c8..89c2fb8 100644
+--- a/browser/Reynard/Client/Extensions/Notifications.swift
++++ b/browser/Reynard/Client/Extensions/Notifications.swift
+@@ -11,6 +11,7 @@ extension Notification.Name {
+     static let addressBarPositionDidChange = Notification.Name("Chrome.AddressBarPositionDidChange")
+     static let landscapeTabBarDidChange = Notification.Name("Chrome.LandscapeTabBarDidChange")
+     static let showFullWebsiteAddressDidChange = Notification.Name("Chrome.ShowFullWebsiteAddressDidChange")
++    static let audioIndicatorVisibilityDidChange = Notification.Name("Chrome.AudioIndicatorVisibilityDidChange")
+     static let appearanceGestureSettingsDidChange = Notification.Name("Appearance.GestureSettingsDidChange")
+     static let newTabDisplayOptionDidChange = Notification.Name("Browsing.NewTabDisplayOptionDidChange")
+     static let homepageSettingsDidChange = Notification.Name("Homepage.SettingsDidChange")
+diff --git a/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift b/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
+index 222aa32..fc96397 100644
+--- a/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
++++ b/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
+@@ -50,8 +50,11 @@ extension BrowserViewController: AddressBarDelegate, AddressBarGestureDelegate {
+     func refreshAddressBarAudioButton() {
+         let selectedTab = tabManager.selectedTab
+         let playingTabs = tabsPlayingAudio
++        // The indicator is the only way to unmute, so a muted tab that is playing still shows it.
++        let showsIndicator = Prefs.AppearanceSettings.showsAudioIndicator ||
++        (selectedTab?.isMuted == true && selectedTab?.state.isPlayingAudio == true)
+         browserChrome.updateAddressBarAudioButton(
+-            isVisible: !playingTabs.isEmpty,
++            isVisible: showsIndicator && !playingTabs.isEmpty,
+             isMuted: selectedTab?.isMuted == true ||
+             (!playingTabs.isEmpty && playingTabs.allSatisfy(\.isMuted))
+         )
+diff --git a/browser/Reynard/Client/Interface/BrowserViewController.swift b/browser/Reynard/Client/Interface/BrowserViewController.swift
+index 9041c53..fe923f2 100644
+--- a/browser/Reynard/Client/Interface/BrowserViewController.swift
++++ b/browser/Reynard/Client/Interface/BrowserViewController.swift
+@@ -871,6 +871,16 @@ final class BrowserViewController: UIViewController, GeckoScreenOrientationDeleg
+             name: .newTabDisplayOptionDidChange,
+             object: nil
+         )
++        NotificationCenter.default.addObserver(
++            self,
++            selector: #selector(audioIndicatorVisibilityDidChange),
++            name: .audioIndicatorVisibilityDidChange,
++            object: nil
++        )
++    }
++    
++    @objc private func audioIndicatorVisibilityDidChange() {
++        refreshAddressBarAudioButton()
+     }
+     
+     @objc private func newTabDisplayOptionDidChange() {
+diff --git a/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Appearance/AppearancePreferencesViewController.swift b/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Appearance/AppearancePreferencesViewController.swift
+index def897d..cba03d2 100644
+--- a/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Appearance/AppearancePreferencesViewController.swift
++++ b/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Appearance/AppearancePreferencesViewController.swift
+@@ -19,7 +19,13 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+             case .appAppearance:
+                 return SettingsSectionText()
+             case .addressBar:
+-                return SettingsSectionText(headerTitle: NSLocalizedString("Address Bar", comment: ""))
++                return SettingsSectionText(
++                    headerTitle: NSLocalizedString("Address Bar", comment: ""),
++                    footerTitle: NSLocalizedString(
++                        "Shows a speaker button in the address bar while a tab plays sound. It’s the only way to mute tabs, so when this is off it still appears on a muted tab that’s playing.",
++                        comment: ""
++                    )
++                )
+             case .gestures:
+                 return SettingsSectionText(headerTitle: NSLocalizedString("Gestures", comment: ""))
+             case .tabs:
+@@ -32,6 +38,7 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+         case appAppearance
+         case BrowserChromePosition
+         case showFullWebsiteAddress
++        case showAudioIndicator
+         case pullToRefresh
+         case scrollToHideToolbar
+         case swipeAddressBarSideways
+@@ -40,6 +47,7 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+     }
+     
+     private let showFullWebsiteAddressSwitch = UISwitch()
++    private let showAudioIndicatorSwitch = UISwitch()
+     private let pullToRefreshSwitch = UISwitch()
+     private let scrollToHideToolbarSwitch = UISwitch()
+     private let swipeAddressBarSidewaysSwitch = UISwitch()
+@@ -127,6 +135,12 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+             cell.selectionStyle = .none
+             cell.accessoryView = showFullWebsiteAddressSwitch
+             return cell
++        case .showAudioIndicator:
++            let cell = SettingsTableViewCell(style: .default, reuseIdentifier: nil)
++            cell.textLabel?.text = NSLocalizedString("Show Audio Indicator", comment: "")
++            cell.selectionStyle = .none
++            cell.accessoryView = showAudioIndicatorSwitch
++            return cell
+         case .pullToRefresh:
+             let cell = SettingsTableViewCell(style: .default, reuseIdentifier: nil)
+             cell.textLabel?.text = NSLocalizedString("Pull to Refresh", comment: "")
+@@ -170,6 +184,7 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+     
+     private func configureSwitch() {
+         showFullWebsiteAddressSwitch.addTarget(self, action: #selector(showFullWebsiteAddressSwitchDidChange), for: .valueChanged)
++        showAudioIndicatorSwitch.addTarget(self, action: #selector(showAudioIndicatorSwitchDidChange), for: .valueChanged)
+         pullToRefreshSwitch.addTarget(self, action: #selector(pullToRefreshSwitchDidChange), for: .valueChanged)
+         scrollToHideToolbarSwitch.addTarget(self, action: #selector(scrollToHideToolbarSwitchDidChange), for: .valueChanged)
+         swipeAddressBarSidewaysSwitch.addTarget(self, action: #selector(swipeAddressBarSidewaysSwitchDidChange), for: .valueChanged)
+@@ -179,6 +194,7 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+     
+     private func refreshDisplayedState() {
+         showFullWebsiteAddressSwitch.isOn = Prefs.AppearanceSettings.showsFullWebsiteAddress
++        showAudioIndicatorSwitch.isOn = Prefs.AppearanceSettings.showsAudioIndicator
+         pullToRefreshSwitch.isOn = Prefs.AppearanceSettings.pullToRefreshEnabled
+         scrollToHideToolbarSwitch.isOn = Prefs.AppearanceSettings.scrollToHideToolbarEnabled
+         swipeAddressBarSidewaysSwitch.isOn = Prefs.AppearanceSettings.swipeAddressBarSidewaysEnabled
+@@ -190,6 +206,10 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+         Prefs.AppearanceSettings.showsFullWebsiteAddress = showFullWebsiteAddressSwitch.isOn
+     }
+     
++    @objc private func showAudioIndicatorSwitchDidChange() {
++        Prefs.AppearanceSettings.showsAudioIndicator = showAudioIndicatorSwitch.isOn
++    }
++    
+     @objc private func pullToRefreshSwitchDidChange() {
+         Prefs.AppearanceSettings.pullToRefreshEnabled = pullToRefreshSwitch.isOn
+     }
+@@ -249,9 +269,9 @@ final class AppearancePreferencesViewController: SettingsTableViewController {
+             return [.appAppearance]
+         case .addressBar:
+             if UIDevice.current.userInterfaceIdiom == .pad {
+-                return [.showFullWebsiteAddress]
++                return [.showFullWebsiteAddress, .showAudioIndicator]
+             }
+-            return [.BrowserChromePosition, .showFullWebsiteAddress]
++            return [.BrowserChromePosition, .showFullWebsiteAddress, .showAudioIndicator]
+         case .gestures:
+             var rows: [Row] = [.pullToRefresh, .scrollToHideToolbar]
+             guard position == .bottom,
+diff --git a/browser/Reynard/Client/Preferences/BrowserPreferences.swift b/browser/Reynard/Client/Preferences/BrowserPreferences.swift
+index a4e2567..8278cff 100644
+--- a/browser/Reynard/Client/Preferences/BrowserPreferences.swift
++++ b/browser/Reynard/Client/Preferences/BrowserPreferences.swift
+@@ -99,6 +99,7 @@ final class BrowserPreferences {
+             key("AppearanceSettings", "appAppearance"): AppAppearance.system.rawValue,
+             key("AppearanceSettings", "addressBarPosition"): BrowserChromePosition.bottom.rawValue,
+             key("AppearanceSettings", "showsFullWebsiteAddress"): false,
++            key("AppearanceSettings", "showsAudioIndicator"): false,
+             key("AppearanceSettings", "showsLandscapeTabBar"): true,
+             key("AppearanceSettings", "pullToRefreshEnabled"): true,
+             key("AppearanceSettings", "scrollToHideToolbarEnabled"): true,
+@@ -1020,6 +1021,16 @@ final class BrowserPreferences {
+             }
+         }
+         
++        static var showsAudioIndicator: Bool {
++            get {
++                prefs.bool(forSetting: "AppearanceSettings", key: "showsAudioIndicator")
++            }
++            set {
++                prefs.set(newValue, forSetting: "AppearanceSettings", key: "showsAudioIndicator")
++                NotificationCenter.default.post(name: .audioIndicatorVisibilityDidChange, object: nil)
++            }
++        }
++        
+         static var pullToRefreshEnabled: Bool {
+             get {
+                 prefs.bool(forSetting: "AppearanceSettings", key: "pullToRefreshEnabled")

@@ -1,0 +1,190 @@
+diff --git a/browser/Reynard/Client/Interface/Library/LibraryViewController.swift b/browser/Reynard/Client/Interface/Library/LibraryViewController.swift
+index d8c14a7..a03419a 100644
+--- a/browser/Reynard/Client/Interface/Library/LibraryViewController.swift
++++ b/browser/Reynard/Client/Interface/Library/LibraryViewController.swift
+@@ -189,7 +189,7 @@ final class LibraryViewController: UITabBarController, UITabBarControllerDelegat
+     @objc private func markSettingsUpdateAvailable() {
+         viewControllers?.first { viewController in
+             viewController.tabBarItem.tag == LibrarySection.settings.rawValue
+-        }?.tabBarItem.badgeValue = ""
++        }?.tabBarItem.badgeValue = BrowserUpdates.shared.hasUpdate ? "" : nil
+     }
+ }
+ 
+diff --git a/browser/Reynard/Client/Interface/Library/Settings/Sections/About/AboutSettingsSection.swift b/browser/Reynard/Client/Interface/Library/Settings/Sections/About/AboutSettingsSection.swift
+index 195c375..7491e5e 100644
+--- a/browser/Reynard/Client/Interface/Library/Settings/Sections/About/AboutSettingsSection.swift
++++ b/browser/Reynard/Client/Interface/Library/Settings/Sections/About/AboutSettingsSection.swift
+@@ -8,7 +8,7 @@
+ import GeckoView
+ import UIKit
+ 
+-final class AboutSettingsSection {
++final class AboutSettingsSection: NSObject {
+     enum Row: CaseIterable {
+         case experimentalFeatures
+         case appVersion
+@@ -16,9 +16,16 @@ final class AboutSettingsSection {
+         case sourceCode
+         case supportProject
+         case githubProfile
++        case checkForUpdates
+     }
+     
+     private var showsExperimentalFeatures = false
++    private let updateCheckSwitch = UISwitch()
++    
++    override init() {
++        super.init()
++        updateCheckSwitch.addTarget(self, action: #selector(updateCheckSwitchChanged(_:)), for: .valueChanged)
++    }
+     
+     private var displayedRows: [Row] {
+         return Row.allCases.filter {
+@@ -64,6 +71,13 @@ final class AboutSettingsSection {
+             return linkCell(title: NSLocalizedString("Support The Project", comment: ""))
+         case .githubProfile:
+             return linkCell(title: NSLocalizedString("GitHub - @minh-ton", comment: ""))
++        case .checkForUpdates:
++            let cell = SettingsTableViewCell(style: .default, reuseIdentifier: nil)
++            cell.textLabel?.text = NSLocalizedString("Check for Updates", comment: "")
++            cell.selectionStyle = .none
++            updateCheckSwitch.isOn = Prefs.UpdateSettings.checksForUpdates
++            cell.accessoryView = updateCheckSwitch
++            return cell
+         }
+     }
+     
+@@ -94,11 +108,16 @@ final class AboutSettingsSection {
+             return URL(string: "https://buymeacoffee.com/hnimnot")
+         case .githubProfile:
+             return URL(string: "https://github.com/minh-ton")
+-        case .experimentalFeatures, .appVersion, .engineVersion:
++        case .experimentalFeatures, .appVersion, .engineVersion, .checkForUpdates:
+             return nil
+         }
+     }
+     
++    @objc private func updateCheckSwitchChanged(_ sender: UISwitch) {
++        Prefs.UpdateSettings.checksForUpdates = sender.isOn
++        BrowserUpdates.shared.updateCheckSettingDidChange()
++    }
++    
+     private func valueCell(title: String, value: String) -> UITableViewCell {
+         let cell = SettingsTableViewCell(style: .value1, reuseIdentifier: nil)
+         cell.textLabel?.text = title
+diff --git a/browser/Reynard/Client/Interface/Library/Settings/SettingsViewController.swift b/browser/Reynard/Client/Interface/Library/Settings/SettingsViewController.swift
+index 0bbd61c..f54a0bb 100644
+--- a/browser/Reynard/Client/Interface/Library/Settings/SettingsViewController.swift
++++ b/browser/Reynard/Client/Interface/Library/Settings/SettingsViewController.swift
+@@ -32,7 +32,13 @@ final class SettingsViewController: SettingsTableViewController {
+             case .advanced:
+                 return SettingsSectionText(headerTitle: NSLocalizedString("Advanced", comment: ""))
+             case .about:
+-                return SettingsSectionText(headerTitle: NSLocalizedString("About", comment: ""))
++                return SettingsSectionText(
++                    headerTitle: NSLocalizedString("About", comment: ""),
++                    footerTitle: NSLocalizedString(
++                        "Checks GitHub for new versions of Reynard. Updating installs the official release, which replaces this build.",
++                        comment: ""
++                    )
++                )
+             }
+         }
+     }
+@@ -79,6 +85,7 @@ final class SettingsViewController: SettingsTableViewController {
+     override func viewDidLoad() {
+         super.viewDidLoad()
+         observeJITMode()
++        observeUpdates()
+         jitSection.refreshDisplayedState()
+     }
+     
+@@ -228,6 +235,19 @@ final class SettingsViewController: SettingsTableViewController {
+         )
+     }
+     
++    private func observeUpdates() {
++        NotificationCenter.default.addObserver(
++            self,
++            selector: #selector(appUpdateAvailable),
++            name: .appUpdateAvailable,
++            object: nil
++        )
++    }
++    
++    @objc private func appUpdateAvailable() {
++        tableView.reloadData()
++    }
++    
+     @objc private func syncJITModeBanner(_ notification: Notification) {
+         jitSection.refreshDisplayedState()
+         tableView.reloadData()
+diff --git a/browser/Reynard/Client/Preferences/BrowserPreferences.swift b/browser/Reynard/Client/Preferences/BrowserPreferences.swift
+index a4e2567..570d0b5 100644
+--- a/browser/Reynard/Client/Preferences/BrowserPreferences.swift
++++ b/browser/Reynard/Client/Preferences/BrowserPreferences.swift
+@@ -50,6 +50,9 @@ final class BrowserPreferences {
+             // JIT
+             key("JITSettings", "isJITEnabled"): false,
+             
++            // Updates
++            key("UpdateSettings", "checksForUpdates"): false,
++            
+             // Experimental
+             
+             // Compatibility
+@@ -1082,6 +1085,18 @@ final class BrowserPreferences {
+         }
+     }
+     
++    // MARK: - Updates
++    struct UpdateSettings {
++        static var checksForUpdates: Bool {
++            get {
++                prefs.bool(forSetting: "UpdateSettings", key: "checksForUpdates")
++            }
++            set {
++                prefs.set(newValue, forSetting: "UpdateSettings", key: "checksForUpdates")
++            }
++        }
++    }
++    
+     // MARK: - Bookmarks
+     struct BookmarkSettings {
+         static var placeFoldersOnTop: Bool {
+diff --git a/browser/Reynard/Client/Startup/BrowserUpdates.swift b/browser/Reynard/Client/Startup/BrowserUpdates.swift
+index 1b36dc7..7f48b26 100644
+--- a/browser/Reynard/Client/Startup/BrowserUpdates.swift
++++ b/browser/Reynard/Client/Startup/BrowserUpdates.swift
+@@ -26,7 +26,20 @@ final class BrowserUpdates: NSObject {
+         fetchUpdates()
+     }
+     
++    func updateCheckSettingDidChange() {
++        guard Prefs.UpdateSettings.checksForUpdates else {
++            hasUpdate = false
++            // Observers re-read hasUpdate, so this also clears the update badges and cards.
++            NotificationCenter.default.post(name: .appUpdateAvailable, object: nil)
++            return
++        }
++        fetchUpdates()
++    }
++    
+     private func fetchUpdates() {
++        guard Prefs.UpdateSettings.checksForUpdates else {
++            return
++        }
+         DispatchQueue.global(qos: .background).async {
+             guard let url = URL(string: Self.sourceURL),
+                   let data = try? Data(contentsOf: url) else { return }
+@@ -56,6 +69,9 @@ final class BrowserUpdates: NSObject {
+             }
+             
+             DispatchQueue.main.async {
++                guard Prefs.UpdateSettings.checksForUpdates else {
++                    return
++                }
+                 self.hasUpdate = true
+                 self.latestVersion = latestVersionStr
+                 NotificationCenter.default.post(name: .appUpdateAvailable, object: nil)

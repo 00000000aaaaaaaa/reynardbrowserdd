@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   prepare:
-    if: ${{ github.repository_owner == 'minh-ton' }}
+    if: ${{ github.repository_owner == 'minh-ton' || github.event_name == 'workflow_dispatch' }}
     name: Select build variants
     runs-on: ubuntu-latest
     outputs:
@@ -94,6 +94,24 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           fetch-depth: 0
           submodules: false
+
+      - name: Apply app patches
+        shell: bash
+        run: |
+          shopt -s nullglob
+          patch_files=(.github/workflows/*.patch)
+          if [ ${#patch_files[@]} -eq 0 ]; then
+            echo "::error::No .patch files in .github/workflows/ - upload the patch next to this file."
+            exit 1
+          fi
+          for patch_file in "${patch_files[@]}"; do
+            echo "Applying $patch_file..."
+            if ! git apply --3way --whitespace=nowarn "$patch_file"; then
+              echo "::error::$patch_file does not apply to this version of Reynard."
+              exit 1
+            fi
+          done
+          git diff --cached --stat
 
       - name: Set up latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
