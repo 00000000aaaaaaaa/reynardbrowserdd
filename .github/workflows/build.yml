@@ -99,6 +99,12 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
+          # App patches belong in .github/workflows/ with a .patch name; catch any uploaded elsewhere.
+          misplaced=$(git grep -l -e '^diff --git a/browser/Reynard/' -- . ':!.github/workflows/*.patch' || true)
+          if [ -n "$misplaced" ]; then
+            echo "::error::App patch in the wrong place or with the wrong name (it must be .github/workflows/NAME.patch): $(echo "$misplaced" | tr '\n' ' ')"
+            exit 1
+          fi
           patch_files=(.github/workflows/*.patch)
           if [ ${#patch_files[@]} -eq 0 ]; then
             echo "::error::No .patch files in .github/workflows/ - upload the patch next to this file."
@@ -107,11 +113,17 @@ jobs:
           for patch_file in "${patch_files[@]}"; do
             echo "Applying $patch_file..."
             if ! git apply --3way --whitespace=nowarn "$patch_file"; then
-              echo "::error::$patch_file does not apply to this version of Reynard."
+              echo "::error::$patch_file does not apply to this version of Reynard. If you uploaded a newer version of a patch, delete the older file from .github/workflows."
               exit 1
             fi
           done
           git diff --cached --stat
+          {
+            echo "### App patches applied"
+            for patch_file in "${patch_files[@]}"; do
+              echo "- \`${patch_file##*/}\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -137,6 +149,38 @@ jobs:
       - name: Apply Gecko patches
         run: ./tools/development/apply-patches.sh
 
+      # Reuse the engine from an earlier build when nothing that goes into it has
+      # changed (Firefox version, Gecko patches, engine build scripts, iOS SDK,
+      # build variant). Change "v1" in the key to force a fresh engine build.
+      - name: Read iOS SDK version
+        id: ios_sdk
+        run: echo "build=$(xcrun --sdk iphoneos --show-sdk-build-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore saved Gecko engine
+        id: engine_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gecko-engine
+          key: gecko-engine-v1-${{ matrix.variant }}-${{ steps.ios_sdk.outputs.build }}-${{ hashFiles('engine/release.txt', 'patches/**', 'tools/development/update-gecko.sh', 'tools/development/apply-patches.sh', 'tools/development/build-gecko.sh') }}
+
+      - name: Use saved Gecko engine
+        id: engine
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.engine_cache.outputs.cache-hit }}
+        run: |
+          saved="$RUNNER_TEMP/gecko-engine/dist"
+          if [ "$CACHE_HIT" = "true" ] && [ -f "$saved/bin/XUL" ]; then
+            mkdir -p engine/firefox/obj-aarch64-apple-ios
+            rm -rf engine/firefox/obj-aarch64-apple-ios/dist
+            mv "$saved" engine/firefox/obj-aarch64-apple-ios/dist
+            echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+            echo "Using the saved Gecko engine, so the engine build is skipped."
+          else
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "No saved Gecko engine matches this build, so it will be built."
+          fi
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -147,6 +191,7 @@ jobs:
         run: echo "hash=$(rustc -Vv | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Gecko dependency cache
+        if: steps.engine.outputs.prebuilt != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -168,14 +213,63 @@ jobs:
             buildcache-idevice-${{ steps.rust_toolchain.outputs.hash }}-
 
       - name: Set up sccache
+        if: steps.engine.outputs.prebuilt != 'true'
         uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Build Gecko
+        if: steps.engine.outputs.prebuilt != 'true'
         env:
           CC: clang
           CXX: clang++
           LD: ld64.lld
         run: ./tools/development/build-gecko.sh ${{ matrix.build_args }}
+
+      # Save the engine right away, so a later failure in the app build
+      # (for example a mistake in a patch) doesn't throw it away.
+      - name: Prepare Gecko engine for saving
+        id: engine_copy
+        if: steps.engine.outputs.prebuilt != 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/gecko-engine"
+          # dist/ is mostly links into the source and build folders, so copy the
+          # real files. Links that point at nothing are left out.
+          python3 - "$PWD/engine/firefox/obj-aarch64-apple-ios/dist" "$RUNNER_TEMP/gecko-engine/dist" <<'PY'
+          import os, shutil, sys
+
+          def skip_broken_links(folder, names):
+              skipped = []
+              here = os.path.realpath(folder)
+              for name in names:
+                  path = os.path.join(folder, name)
+                  if not os.path.islink(path):
+                      continue
+                  if not os.path.exists(path):
+                      skipped.append(name)
+                  elif os.path.isdir(path):
+                      target = os.path.realpath(path)
+                      if here == target or here.startswith(target + os.sep):
+                          sys.exit(f"Link loop at {path}, not saving the engine.")
+              return skipped
+
+          shutil.copytree(sys.argv[1], sys.argv[2], symlinks=False, ignore=skip_broken_links)
+          PY
+          test -f "$RUNNER_TEMP/gecko-engine/dist/bin/XUL"
+          du -sh "$RUNNER_TEMP/gecko-engine"
+
+      - name: Save Gecko engine for later builds
+        if: steps.engine_copy.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gecko-engine
+          key: ${{ steps.engine_cache.outputs.cache-primary-key }}
+
+      - name: Remove engine copy
+        if: steps.engine_copy.outcome != 'skipped'
+        run: rm -rf "$RUNNER_TEMP/gecko-engine"
 
       - name: Build idevice support library
         run: ./tools/development/build-idevice.sh
