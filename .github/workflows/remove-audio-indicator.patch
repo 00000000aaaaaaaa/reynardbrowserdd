@@ -1,0 +1,71 @@
+diff --git a/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift b/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
+index 222aa32..50ce4a1 100644
+--- a/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
++++ b/browser/Reynard/Client/Interface/BrowserViewController+AddressBar.swift
+@@ -48,40 +48,15 @@ extension BrowserViewController: AddressBarDelegate, AddressBarGestureDelegate {
+     }
+     
+     func refreshAddressBarAudioButton() {
+-        let selectedTab = tabManager.selectedTab
+-        let playingTabs = tabsPlayingAudio
+-        browserChrome.updateAddressBarAudioButton(
+-            isVisible: !playingTabs.isEmpty,
+-            isMuted: selectedTab?.isMuted == true ||
+-            (!playingTabs.isEmpty && playingTabs.allSatisfy(\.isMuted))
+-        )
+-    }
+-    
+-    private var tabsPlayingAudio: [Tab] {
+-        return tabManager.activeTabs.filter { $0.state.isPlayingAudio }
++        // The audio indicator is removed in this build.
++        browserChrome.updateAddressBarAudioButton(isVisible: false, isMuted: false)
+     }
+     
+     // MARK: - AddressBarDelegate
+     
+     func addressBarAudioMenuState(_ addressBar: AddressBar) -> AddressBarMenu.AudioState? {
+-        let playingTabs = tabsPlayingAudio
+-        guard !playingTabs.isEmpty else {
+-            return nil
+-        }
+-        let selectedTab = tabManager.selectedTab
+-        return AddressBarMenu.AudioState(
+-            playingTabs: playingTabs.map { tab in
+-                let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+-                return AddressBarMenu.AudioTabItem(
+-                    id: tab.id,
+-                    title: title.isEmpty ? tab.url ?? NSLocalizedString("Untitled", comment: "") : title,
+-                    favicon: tab.favicon,
+-                    isMuted: tab.isMuted
+-                )
+-            },
+-            selectedTabID: selectedTab?.id,
+-            isSelectedTabMuted: selectedTab?.isMuted ?? false
+-        )
++        // No audio menu either: the indicator that opens it is removed in this build.
++        return nil
+     }
+     
+     func addressBarDidRequestReloadOrStop(_ addressBar: AddressBar) {
+diff --git a/browser/Reynard/Client/TabManagement/TabManagerImpl.swift b/browser/Reynard/Client/TabManagement/TabManagerImpl.swift
+index c23eb59..493299d 100644
+--- a/browser/Reynard/Client/TabManagement/TabManagerImpl.swift
++++ b/browser/Reynard/Client/TabManagement/TabManagerImpl.swift
+@@ -430,7 +430,7 @@ final class TabManagerImplementation: NSObject, TabManager {
+                 createdAt: snapshot.createdAt,
+                 favicon: cachedFavicon(for: snapshot.url),
+                 thumbnail: snapshot.thumbnail,
+-                isMuted: snapshot.isMuted,
++                isMuted: false, // mute controls are removed in this build
+                 isPrivate: false
+             )
+             tab.state.openerTabID = snapshot.openerTabID
+@@ -458,7 +458,7 @@ final class TabManagerImplementation: NSObject, TabManager {
+                 createdAt: snapshot.createdAt,
+                 favicon: cachedFavicon(for: snapshot.url),
+                 thumbnail: snapshot.thumbnail,
+-                isMuted: snapshot.isMuted,
++                isMuted: false, // mute controls are removed in this build
+                 isPrivate: true
+             )
+             prepareRestoration(

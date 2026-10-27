@@ -1,0 +1,68 @@
+diff --git a/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Homepage/HomepagePreferencesViewController.swift b/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Homepage/HomepagePreferencesViewController.swift
+index c73c69a..b79e8b8 100644
+--- a/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Homepage/HomepagePreferencesViewController.swift
++++ b/browser/Reynard/Client/Interface/Library/Settings/Sections/General/Homepage/HomepagePreferencesViewController.swift
+@@ -36,7 +36,6 @@ final class HomepagePreferencesViewController: SettingsTableViewController {
+     
+     private enum HomepageBannerRow: CaseIterable {
+         case recommendations
+-        case newUpdates
+     }
+     
+     private enum WallpaperRow: CaseIterable {
+@@ -45,7 +44,6 @@ final class HomepagePreferencesViewController: SettingsTableViewController {
+     }
+     
+     private let recommendationsSwitch = UISwitch()
+-    private let newUpdatesSwitch = UISwitch()
+     private let showWallpaperSwitch = UISwitch()
+     private let wallpaperPreviewImageView: UIImageView = {
+         let imageView = UIImageView(frame: CGRect(
+@@ -149,9 +147,6 @@ final class HomepagePreferencesViewController: SettingsTableViewController {
+             case .recommendations:
+                 cell.textLabel?.text = NSLocalizedString("Recommendations", comment: "")
+                 cell.accessoryView = recommendationsSwitch
+-            case .newUpdates:
+-                cell.textLabel?.text = NSLocalizedString("New Updates", comment: "")
+-                cell.accessoryView = newUpdatesSwitch
+             }
+             return cell
+         case .wallpaper:
+@@ -216,13 +211,11 @@ final class HomepagePreferencesViewController: SettingsTableViewController {
+     
+     private func configureSwitches() {
+         recommendationsSwitch.addTarget(self, action: #selector(recommendationsSwitchDidChange(_:)), for: .valueChanged)
+-        newUpdatesSwitch.addTarget(self, action: #selector(newUpdatesSwitchDidChange(_:)), for: .valueChanged)
+         showWallpaperSwitch.addTarget(self, action: #selector(showWallpaperSwitchDidChange(_:)), for: .valueChanged)
+     }
+     
+     private func refreshDisplayedState() {
+         recommendationsSwitch.isOn = Prefs.HomepageSettings.showsRecommendations
+-        newUpdatesSwitch.isOn = Prefs.HomepageSettings.showsNewUpdates
+         showWallpaperSwitch.isOn = Prefs.HomepageSettings.showsWallpaper
+     }
+     
+@@ -230,10 +223,6 @@ final class HomepagePreferencesViewController: SettingsTableViewController {
+         Prefs.HomepageSettings.showsRecommendations = sender.isOn
+     }
+     
+-    @objc private func newUpdatesSwitchDidChange(_ sender: UISwitch) {
+-        Prefs.HomepageSettings.showsNewUpdates = sender.isOn
+-    }
+-    
+     @objc private func showWallpaperSwitchDidChange(_ sender: UISwitch) {
+         Prefs.HomepageSettings.showsWallpaper = sender.isOn
+     }
+diff --git a/browser/Reynard/Client/Startup/BrowserUpdates.swift b/browser/Reynard/Client/Startup/BrowserUpdates.swift
+index 1b36dc7..cd4181a 100644
+--- a/browser/Reynard/Client/Startup/BrowserUpdates.swift
++++ b/browser/Reynard/Client/Startup/BrowserUpdates.swift
+@@ -23,7 +23,7 @@ final class BrowserUpdates: NSObject {
+         let sideloadIPA = docs.appendingPathComponent("Reynard.ipa")
+         try? FileManager.default.removeItem(at: sideloadIPA)
+         
+-        fetchUpdates()
++        // Update checks are removed in this build: never ask GitHub for a newer version.
+     }
+     
+     private func fetchUpdates() {
